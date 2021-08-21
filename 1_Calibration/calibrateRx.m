@@ -19,7 +19,7 @@ cd('..'); setPath;
 ABS_PATH_TO_CALI_DATA = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
     'Odin', 'POWDER', 'calibration-logs');
 ABS_PATH_TO_SAVE_PLOTS = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
-    'PostProcessingResults', 'Calibration');
+    'PostProcessingResults', '1_Calibration');
 
 % Set this to true if you want figures to be generated silently.
 FLAG_GEN_PLOTS_SILENTLY = true;
@@ -37,12 +37,14 @@ FLAG_USE_FILTERED_OUTPUT_FILES = false;
 rxGains = [0; 76]; % In dB.
 
 % Reference received power measured by the spectrum analyzer.
-measPowers = {0.8 - (0:2:76), ...
-    (0.8 - 50) - (0:2:28)};
+measPowers = {0.8 - (0:2:76)', ...
+    (0.8 - 50) - (0:2:28)'};
 
 % Manually ignore invalid measurements.
-boolsMeasToFitFirst = ones(size(measPowers{1}));
-boolsMeasToFitSecond = ones(size(measPowers{2}));
+numOfMeasToUseFirst = 17;
+boolsMeasToFitFirst = [ones(1, numOfMeasToUseFirst), ...
+    zeros(1, length(measPowers{1})-numOfMeasToUseFirst)];
+boolsMeasToFitSecond = ones(size(measPowers{2}))';
 BOOLS_MEAS_TO_FIT = {boolsMeasToFitFirst, boolsMeasToFitSecond};
 
 % Sample rate used for GnuRadio.
