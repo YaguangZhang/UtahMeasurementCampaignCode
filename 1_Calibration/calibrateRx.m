@@ -67,7 +67,8 @@ numStartSampsToDiscard = 0.1*Fs; % ~0.1s
 timeLengthAtCenterToUse = 1; % In second.
 
 % It seems the 76dB gain dataset (set #1 needs more noise elimination).
-NUMS_SIGMA_FOR_THRESHOLD = [1, 1].*3.5;
+NUM_SIGMA_FOR_THRESHOLD = 3.5;
+NUMS_SIGMA_FOR_THRESHOLD = [1, 1].*NUM_SIGMA_FOR_THRESHOLD;
 
 % For any figure generated, a .pgn screen shot is always saved; Set this to
 % be true to also save a .fig version (which may dramatically slow down the
@@ -735,7 +736,8 @@ pathSigPowerCompSettingsFileToSave = fullfile( ...
 save([pathSigPowerCompSettingsFileToSave, '.mat'], ...
     'Fs', 'Fp', 'Fst', 'Ap', 'Ast', ...
     'maxFreqPassed', 'minFreqPassed', ...
-    'numStartSampsToDiscard', 'timeLengthAtCenterToUse');
+    'numStartSampsToDiscard', 'timeLengthAtCenterToUse', ...
+    'NUM_SIGMA_FOR_THRESHOLD');
 
 disp('    Done!')
 
