@@ -50,7 +50,7 @@ BOOLS_MEAS_TO_FIT = {boolsMeasToFitFirst, boolsMeasToFitSecond};
 % Sample rate used for GnuRadio.
 Fs = 2 * 10^6;
 % Low pass filter for the PSD. Tried before: 46000; 39500.
-maxFreqPassed = 30000; % In Hz.
+maxFreqPassed = 10000; % In Hz. 10kHz for NIST data.
 % High pass filter to remove the DC component.
 minFreqPassed = 1; % In Hz.
 
@@ -61,7 +61,7 @@ minValidCalPower = -inf; % In dB. Before: -140.
 minValidEstSnr = 0; % Before: 1.5.
 
 % Number of samples to discard at the beginning.
-numStartSampsToDiscard = 200000; % ~0.1s
+numStartSampsToDiscard = 0.1*Fs; % ~0.1s
 % After discarding these samples, furthermore only keep the middle part of
 % the signal for calibration.
 timeLengthAtCenterToUse = 1; % In second.
@@ -727,8 +727,15 @@ end
 % lines.
 pathCalFileToSave = fullfile(ABS_PATH_TO_SAVE_PLOTS, 'lsLinesPolys');
 save([pathCalFileToSave, '.mat'], ...
-    'Fs', 'lsLinesPolys', 'lsLinesPolysInv', 'fittedMeaPs', 'fittedCalPs', ...
+    'lsLinesPolys', 'lsLinesPolysInv', 'fittedMeaPs', 'fittedCalPs', ...
     'rxGains');
+
+pathSigPowerCompSettingsFileToSave = fullfile( ...
+    ABS_PATH_TO_SAVE_PLOTS, 'sigPowerCompSettings');
+save([pathSigPowerCompSettingsFileToSave, '.mat'], ...
+    'Fs', 'Fp', 'Fst', 'Ap', 'Ast', ...
+    'maxFreqPassed', 'minFreqPassed', ...
+    'numStartSampsToDiscard', 'timeLengthAtCenterToUse');
 
 disp('    Done!')
 
