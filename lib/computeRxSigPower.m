@@ -124,7 +124,7 @@ psdPassed(idxDC) = 0;
 calcP = trapz(f, psdPassed);
 
 %% Rx Calibration
-powerShiftsForCali = genCalibrationFct(lsLinesPolysInv, rxGain, rxGains);
+powerShiftsForCali = genCalibrationFct(lsLinesPolysInv, rxGains, rxGain);
 
 % Change to dB and remove the gain from the Gnu Radio.
 calcPInDbShifted = 10.*log10(calcP) - rxGain;
