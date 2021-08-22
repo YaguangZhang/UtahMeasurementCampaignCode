@@ -119,6 +119,18 @@ end
 
 disp('    Done!')
 
+%% Export Results
+
+disp(' ')
+disp('    Saving results...')
+
+pathToSaveResults = fullfile( ...
+    ABS_PATH_TO_SAVE_PLOTS, 'rxPowerWithGps');
+save([pathToSaveResults, '.mat'], ...
+    'routeNames', 'txLatLons', 'rxLatLonTracks', 'rxSigPowers');
+
+disp('    Done!')
+
 %% Plot 2D Overview
 
 disp(' ')
