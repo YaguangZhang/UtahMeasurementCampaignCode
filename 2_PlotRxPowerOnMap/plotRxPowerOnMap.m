@@ -89,9 +89,16 @@ for idxRoute = 1:numOfRoutes
     curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
     curUsrpLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
         'rx-realm', 'power-delay-profiles', 'samples.log');
-    curSignal = read_complex_binary(curUsrpLog);
-    curNumOfSamps = length(curSignal);
     
+    curUsrpLogInfo = dir(curUsrpLog);
+    curUsrpLogSizeInByte = curUsrpLogInfo.bytes;
+    
+    % In a GnuRadio .out file, we have:
+    %     Complex - 32 bit floating point for both I and Q readings (8
+    %     bytes in total per sample).
+    curNumOfSamps = floor(curUsrpLogSizeInByte/8);
+    
+    % Segment the coninuous recording to 1-s pieces.
     numOfSigPs = floor(curNumOfSamps/Fs);
     if numOfSigPs*Fs<curNumOfSamps
         numOfSigPs = numOfSigPs+1;
@@ -99,8 +106,9 @@ for idxRoute = 1:numOfRoutes
     
     curSigPs = nan(numOfSigPs, 1);
     for idxSigP = 1:numOfSigPs
-        sigSeg = curSignal( ...
-            (Fs*(idxSigP-1)+1):min(numOfSigPs*Fs, curNumOfSamps));
+        % Avoid reading the whole log file to save RAM.
+        sigSeg = readComplexBinaryInRange(curUsrpLog, ...
+            [Fs*(idxSigP-1)+1, min(idxSigP*Fs, curNumOfSamps)]);
         
         FlagCutHead = idxSigP==1;
         curSigPs(idxSigP) = computeRxSigPower(sigSeg, rxGain, FlagCutHead);
