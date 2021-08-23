@@ -53,7 +53,8 @@ disp('  plotRxPowerOnMap ')
 disp(' ------------------ ')
 
 numOfRoutes = length(ROUTES_OF_INTEREST);
-[routeNames, txLatLons, rxLatLonTracks, rxSigPowers] ...
+[routeNames, txLatLons, rxLatLonTracks, rxGpsTimestamps, ...
+    rxSigPowers, rxUsrpStartTimestamps] ...
     = deal(cell(numOfRoutes, 1));
 
 disp(' ')
@@ -64,18 +65,18 @@ disp('    Done!')
 
 disp(' ')
 disp('    Loading GPS records for the routes of interest...')
-
 for idxRoute = 1:numOfRoutes
     curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
     [rType, rName] = fileparts(curRouteOfInterest);
     routeNames{idxRoute} = [rType, ':', rName];
     
-    [rxLats, rxLons] ...
+    [rxLats, rxLons, rxGpsTs, ~] ...
         = loadGpsForRoute(fullfile( ...
         ABS_PATH_TO_MEAS_DATA, curRouteOfInterest));
     
     txLatLons{idxRoute} = TX_LAT_LON;
     rxLatLonTracks{idxRoute} = [rxLats, rxLons];
+    rxGpsTimestamps{idxRoute} = rxGpsTs;
 end
 
 disp('    Done!')
@@ -92,6 +93,11 @@ for idxRoute = 1:numOfRoutes
     
     curUsrpLogInfo = dir(curUsrpLog);
     curUsrpLogSizeInByte = curUsrpLogInfo.bytes;
+    
+    % Load the stamp for the start time of the USRP recording.
+    curUsrpStartTimeLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
+        'rx-realm', 'power-delay-profiles', 'timestamp.log');
+    rxUsrpStartTimestamps{idxRoute} = parseUsrpTimestampLog(curUsrpStartTimeLog);
     
     % In a GnuRadio .out file, we have:
     %     Complex - 32 bit floating point for both I and Q readings (8
@@ -127,7 +133,8 @@ disp('    Saving results...')
 pathToSaveResults = fullfile( ...
     ABS_PATH_TO_SAVE_PLOTS, 'rxPowerWithGps');
 save([pathToSaveResults, '.mat'], ...
-    'routeNames', 'txLatLons', 'rxLatLonTracks', 'rxSigPowers');
+    'routeNames', 'txLatLons', 'rxLatLonTracks', 'rxGpsTimestamps', ...
+    'rxSigPowers', 'rxUsrpStartTimestamps');
 
 disp('    Done!')
 

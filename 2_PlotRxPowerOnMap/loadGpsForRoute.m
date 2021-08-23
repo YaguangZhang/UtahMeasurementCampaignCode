@@ -1,4 +1,4 @@
-function [rxLats, rxLons, routeName] ...
+function [rxLats, rxLons, rxGpsTimestamps, routeName] ...
     ... %[rxLats, rxLons, routeName, txLat, txLon]
     = loadGpsForRoute(absDirForRouteFolder)
 % LOADGPSFORROUTE Load GPS information from the .json files published by
@@ -33,10 +33,11 @@ curGpsLogs = curGpsLogs(sortedIs);
 
 numOfRxLocs = length(curGpsLogs);
 [rxLats, rxLons] = deal(nan(numOfRxLocs,1));
+rxGpsTimestamps = cell(numOfRxLocs,1);
 for idxRxLoc = 1:numOfRxLocs
     curGpsLogDir = curGpsLogs(idxRxLoc).name;
-    [rxLats(idxRxLoc), rxLons(idxRxLoc)] ...
-        = loadLatLonFromGpsEventFile(curGpsLogDir);
+    [rxLats(idxRxLoc), rxLons(idxRxLoc), rxGpsTimestamps{idxRxLoc}] ...
+        = loadLatLonTimeFromGpsEventFile(curGpsLogDir);
 end
 
 end
