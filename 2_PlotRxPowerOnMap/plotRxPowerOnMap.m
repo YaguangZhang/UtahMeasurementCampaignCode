@@ -54,13 +54,14 @@ disp(' ------------------ ')
 
 pathToSaveResults = fullfile( ...
     ABS_PATH_TO_SAVE_PLOTS, 'rxPowerWithGps.mat');
+numOfRoutes = length(ROUTES_OF_INTEREST);
+
 if exist(pathToSaveResults, 'file')
     disp(' ')
     disp('    Loading history results...')
     load(pathToSaveResults);
     disp('    Done!')
 else
-    numOfRoutes = length(ROUTES_OF_INTEREST);
     [routeNames, txLatLons, rxLatLonTracks, rxGpsTimestamps, ...
         rxSigPowers, rxUsrpStartTimestamps] ...
         = deal(cell(numOfRoutes, 1));
@@ -145,10 +146,92 @@ save(pathToSaveResults, ...
 
 disp('    Done!')
 
+%% Match RX Power Results with GPS Records
+
+% We will find the nearest RX signal smaple for each GPS point.
+MAX_ALLOWED_TIME_DIFF_IN_S = 1;
+
+% Deduce timestamps for the RX signal power values.
+rxSigPowerDatetimes = cell(numOfRoutes, 1);
+% Save the matched RX power results.
+matchedGpsLatLonPowers = cell(numOfRoutes, 1);
+for idxRoute = 1:numOfRoutes
+    % Time stamps for the signal power results.
+    curUsrpStartDatetime = datetime(rxUsrpStartTimestamps{idxRoute});
+    curNumOfSigPowerVs = length(rxSigPowers{idxRoute});
+    
+    rxSigPowerDatetimes{idxRoute} ...
+        = repmat(curUsrpStartDatetime, curNumOfSigPowerVs, 1);
+    for idxSigPower = 1:curNumOfSigPowerVs
+        rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
+            = rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
+            + seconds(idxSigPower-0.5);
+    end
+    
+    % Match the results with GPS points.
+    curGpsLatLons = rxLatLonTracks{idxRoute};
+    curGpsDatetimes = datetime(rxGpsTimestamps{idxRoute});
+    
+    curNumOfGpsPts = size(curGpsLatLons, 1);
+    curIndicesNearestSigPowers = nan(curNumOfGpsPts, 1);
+    for idxGpsPt = 1:curNumOfGpsPts
+        [minTimeDiff, idxNearestSigPower] = ...
+            min(abs(curGpsDatetimes(idxGpsPt) - rxSigPowerDatetimes{idxRoute}));
+        if minTimeDiff<=seconds(MAX_ALLOWED_TIME_DIFF_IN_S)
+            curIndicesNearestSigPowers(idxGpsPt) = idxNearestSigPower;
+        end
+    end
+    
+    curBoolsMatchedGpsPts = ~isnan(curIndicesNearestSigPowers);
+    matchedGpsLatLonPowers{idxRoute} ...
+        = [curGpsLatLons(curBoolsMatchedGpsPts,:), ...
+        rxSigPowers{idxRoute}( ...
+        curIndicesNearestSigPowers(curBoolsMatchedGpsPts))];
+end
+
 %% Plot 2D Overview
 
 disp(' ')
 disp('    Generating map overviews...')
+
+for idxRoute = 1:numOfRoutes
+    hFig = figure;
+    plot3k([matchedGpsLatLonPowers{idxRoute}(:,2), ...
+        matchedGpsLatLonPowers{idxRoute}(:,1), ...
+        matchedGpsLatLonPowers{idxRoute}(:,3)], ...
+        'Labels', {'', 'Longitude', 'Latitude', '', 'RX Power (dBm)'});
+    view(2);
+    xticklabels([]); yticklabels([]);
+    
+    curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    [~, rName] = fileparts(curRouteOfInterest);
+    
+    saveas(hFig, fullfile( ...
+        ABS_PATH_TO_SAVE_PLOTS, ['rxSigPower_', rName, '.jpg']));
+    
+    hFig = figure; hold on;
+    plot3k([matchedGpsLatLonPowers{idxRoute}(:,2), ...
+        matchedGpsLatLonPowers{idxRoute}(:,1), ...
+        (matchedGpsLatLonPowers{idxRoute}(:,3) ...
+        -min(matchedGpsLatLonPowers{idxRoute}(:,3)))], ...
+        'ColorBar', false);
+    plot3(TX_LAT_LON(2), TX_LAT_LON(1), 0, 'r^');
+    plot_google_map;
+    view(2);
+    xticklabels([]); yticklabels([]);
+    xlabel('Longitude'); ylabel('Latitude');
+    
+    curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    [~, rName] = fileparts(curRouteOfInterest);
+    
+    saveas(hFig, fullfile( ...
+        ABS_PATH_TO_SAVE_PLOTS, ['rxSigPower_', rName, '_withMap.jpg']));
+    
+    % Export the results to .csv files.
+    writematrix(matchedGpsLatLonPowers{idxRoute}, ...
+        fullfile(ABS_PATH_TO_SAVE_PLOTS, ...
+        ['matchedLonLatRxPower_', rName, '.csv']));
+end
 
 disp('    Done!')
 
