@@ -15,7 +15,9 @@ cd('..'); setPath;
 % Configure other paths accordingly.
 ROUTES_OF_INTEREST = { ...
     fullfile('fully-autonomous', 'suburban-fraternities'), ...
+    fullfile('fully-autonomous', 'urban-campus-I'), ...
     fullfile('fully-autonomous', 'urban-campus-II'), ...
+    fullfile('fully-autonomous', 'urban-campus-III'), ...
     fullfile('fully-autonomous', 'urban-vegetation')};
 ABS_PATH_TO_MEAS_DATA = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
     'Odin', 'POWDER', 'measurement-logs');
@@ -46,12 +48,17 @@ ABS_PATH_TO_CALI_SETTINGS = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
 TX_LAT_LON = [40.76617367, -111.84793933];
 rxGain = 76;
 
-%% Read In the Log Files
+% The symbol to separate route type and route name.
+routeNameDelimiter = ':';
+
+%% Reuse History Results
 
 disp(' ------------------ ')
 disp('  plotRxPowerOnMap ')
 disp(' ------------------ ')
 
+disp(' ')
+disp('    Reusing history results if possible...')
 pathToSaveResults = fullfile( ...
     ABS_PATH_TO_SAVE_PLOTS, 'rxPowerWithGps.mat');
 numOfRoutes = length(ROUTES_OF_INTEREST);
@@ -59,81 +66,119 @@ numOfRoutes = length(ROUTES_OF_INTEREST);
 if exist(pathToSaveResults, 'file')
     disp(' ')
     disp('    Loading history results...')
-    load(pathToSaveResults);
+    historyResults = load(pathToSaveResults);
     disp('    Done!')
 else
-    [routeNames, txLatLons, rxLatLonTracks, rxGpsTimestamps, ...
-        rxSigPowers, rxUsrpStartTimestamps] ...
-        = deal(cell(numOfRoutes, 1));
-    
-    disp(' ')
-    disp('    Loading calibration results...')
-    load(ABS_PATH_TO_CALI_LINES_FILE);
-    load(ABS_PATH_TO_CALI_SETTINGS);
-    disp('    Done!')
-    
-    disp(' ')
-    disp('    Loading GPS records for the routes of interest...')
-    for idxRoute = 1:numOfRoutes
-        curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
-        [rType, rName] = fileparts(curRouteOfInterest);
-        routeNames{idxRoute} = [rType, ':', rName];
-        
-        [rxLats, rxLons, rxGpsTs, ~] ...
-            = loadGpsForRoute(fullfile( ...
-            ABS_PATH_TO_MEAS_DATA, curRouteOfInterest));
-        
-        txLatLons{idxRoute} = TX_LAT_LON;
-        rxLatLonTracks{idxRoute} = [rxLats, rxLons];
-        rxGpsTimestamps{idxRoute} = rxGpsTs;
-    end
-    
-    disp('    Done!')
-    
-    %% Compute RX Signal Strength
-    
-    disp(' ')
-    disp('    Computing the RX signal strength...')
-    
-    for idxRoute = 1:numOfRoutes
-        curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
-        curUsrpLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
-            'rx-realm', 'power-delay-profiles', 'samples.log');
-        
-        curUsrpLogInfo = dir(curUsrpLog);
-        curUsrpLogSizeInByte = curUsrpLogInfo.bytes;
-        
-        % Load the stamp for the start time of the USRP recording.
-        curUsrpStartTimeLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
-            'rx-realm', 'power-delay-profiles', 'timestamp.log');
-        rxUsrpStartTimestamps{idxRoute} = parseUsrpTimestampLog(curUsrpStartTimeLog);
-        
-        % In a GnuRadio .out file, we have:
-        %     Complex - 32 bit floating point for both I and Q readings (8
-        %     bytes in total per sample).
-        curNumOfSamps = floor(curUsrpLogSizeInByte/8);
-        
-        % Segment the coninuous recording to 1-s pieces.
-        numOfSigPs = floor(curNumOfSamps/Fs);
-        if numOfSigPs*Fs<curNumOfSamps
-            numOfSigPs = numOfSigPs+1;
-        end
-        
-        curSigPs = nan(numOfSigPs, 1);
-        for idxSigP = 1:numOfSigPs
-            % Avoid reading the whole log file to save RAM.
-            sigSeg = readComplexBinaryInRange(curUsrpLog, ...
-                [Fs*(idxSigP-1)+1, min(idxSigP*Fs, curNumOfSamps)]);
-            
-            FlagCutHead = idxSigP==1;
-            curSigPs(idxSigP) = computeRxSigPower(sigSeg, rxGain, FlagCutHead);
-        end
-        
-        rxSigPowers{idxRoute} = curSigPs;
-    end
-    
-    disp('    Done!')
+    historyResults.routeNames = {};
 end
+
+[routeNames, txLatLons, rxLatLonTracks, rxGpsTimestamps, ...
+    rxSigPowers, rxUsrpStartTimestamps] ...
+    = deal(cell(numOfRoutes, 1));
+
+% Construct a list of identifiers of all the routes to process.
+for idxRoute = 1:numOfRoutes
+    curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    [rType, rName] = fileparts(curRouteOfInterest);
+    routeNames{idxRoute} = [rType, routeNameDelimiter, rName];
+end
+
+% Find routes that have already been processed. We assume only new routes
+% can be added, i.e., no processed routes will ever be removed.
+numOfProcessedRoutes = length(historyResults.routeNames);
+indicesProcessedRoutes = nan(numOfProcessedRoutes, 1);
+for idxProcessedRoute = 1:numOfProcessedRoutes
+    curNewRouteIdx = find(strcmp(routeNames, ...
+        historyResults.routeNames{idxProcessedRoute}));
+    indicesProcessedRoutes(idxProcessedRoute) = curNewRouteIdx;
+    
+    txLatLons{curNewRouteIdx} ...
+        = historyResults.txLatLons{idxProcessedRoute};
+    rxLatLonTracks{curNewRouteIdx} ...
+        = historyResults.rxLatLonTracks{idxProcessedRoute};
+    rxGpsTimestamps{curNewRouteIdx} ...
+        = historyResults.rxGpsTimestamps{idxProcessedRoute};
+    
+    rxSigPowers{curNewRouteIdx} ...
+        = historyResults.rxSigPowers{idxProcessedRoute};
+    rxUsrpStartTimestamps{curNewRouteIdx} ...
+        = historyResults.rxUsrpStartTimestamps{idxProcessedRoute};
+end
+
+indicesNewRoutesToProcess ...
+    = find(~ismember(1:numOfRoutes, indicesProcessedRoutes));
+
+disp('    Done!')
+
+%% Read In the Log Files
+
+disp(' ')
+disp('    Loading calibration results...')
+load(ABS_PATH_TO_CALI_LINES_FILE);
+load(ABS_PATH_TO_CALI_SETTINGS);
+disp('    Done!')
+
+disp(' ')
+disp('    Loading GPS records for the routes of interest...')
+for idxRoute = indicesNewRoutesToProcess
+    curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    
+    [rxLats, rxLons, rxGpsTs, ~] ...
+        = loadGpsForRoute(fullfile( ...
+        ABS_PATH_TO_MEAS_DATA, curRouteOfInterest));
+    
+    txLatLons{idxRoute} = TX_LAT_LON;
+    rxLatLonTracks{idxRoute} = [rxLats, rxLons];
+    rxGpsTimestamps{idxRoute} = rxGpsTs;
+end
+
+disp('    Done!')
+
+%% Compute RX Signal Strength
+
+disp(' ')
+disp('    Computing the RX signal strength...')
+
+for idxRoute = indicesNewRoutesToProcess
+    curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    curUsrpLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
+        'rx-realm', 'power-delay-profiles', 'samples.log');
+    
+    curUsrpLogInfo = dir(curUsrpLog);
+    curUsrpLogSizeInByte = curUsrpLogInfo.bytes;
+    
+    % Load the stamp for the start time of the USRP recording.
+    curUsrpStartTimeLog = fullfile( ...
+        ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
+        'rx-realm', 'power-delay-profiles', 'timestamp.log');
+    rxUsrpStartTimestamps{idxRoute} ...
+        = parseUsrpTimestampLog(curUsrpStartTimeLog);
+    
+    % In a GnuRadio .out file, we have:
+    %     Complex - 32 bit floating point for both I and Q readings (8
+    %     bytes in total per sample).
+    curNumOfSamps = floor(curUsrpLogSizeInByte/8);
+    
+    % Segment the coninuous recording to 1-s pieces.
+    numOfSigPs = floor(curNumOfSamps/Fs);
+    if numOfSigPs*Fs<curNumOfSamps
+        numOfSigPs = numOfSigPs+1;
+    end
+    
+    curSigPs = nan(numOfSigPs, 1);
+    for idxSigP = 1:numOfSigPs
+        % Avoid reading the whole log file to save RAM.
+        sigSeg = readComplexBinaryInRange(curUsrpLog, ...
+            [Fs*(idxSigP-1)+1, min(idxSigP*Fs, curNumOfSamps)]);
+        
+        FlagCutHead = idxSigP==1;
+        curSigPs(idxSigP) = computeRxSigPower(sigSeg, rxGain, FlagCutHead);
+    end
+    
+    rxSigPowers{idxRoute} = curSigPs;
+end
+
+disp('    Done!')
 
 %% Export Results
 
