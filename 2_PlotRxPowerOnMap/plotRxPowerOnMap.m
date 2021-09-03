@@ -19,6 +19,7 @@ ROUTES_OF_INTEREST = { ...
     fullfile('fully-autonomous', 'urban-campus-II'), ...
     fullfile('fully-autonomous', 'urban-campus-III'), ...
     fullfile('fully-autonomous', 'urban-vegetation')};
+INDICES_ROUTES_FORCE_REPROCESS = [];
 ABS_PATH_TO_MEAS_DATA = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
     'Odin', 'POWDER', 'measurement-logs');
 ABS_PATH_TO_SAVE_PLOTS = fullfile(ABS_PATH_TO_SHARED_FOLDER, ...
@@ -50,6 +51,9 @@ rxGain = 76;
 
 % The symbol to separate route type and route name.
 routeNameDelimiter = ':';
+
+% We will find the nearest RX signal smaple for each GPS point.
+MAX_ALLOWED_TIME_DIFF_IN_S = 3;
 
 %% Reuse History Results
 
@@ -105,8 +109,12 @@ for idxProcessedRoute = 1:numOfProcessedRoutes
         = historyResults.rxUsrpStartTimestamps{idxProcessedRoute};
 end
 
+boolsRoutesForceProcess = false(1, length(ROUTES_OF_INTEREST));
+boolsRoutesForceProcess(INDICES_ROUTES_FORCE_REPROCESS) = true;
+
 indicesNewRoutesToProcess ...
-    = find(~ismember(1:numOfRoutes, indicesProcessedRoutes));
+    = find( (~ismember(1:numOfRoutes, indicesProcessedRoutes)) ...
+    | boolsRoutesForceProcess );
 
 disp('    Done!')
 
@@ -141,41 +149,39 @@ disp('    Computing the RX signal strength...')
 
 for idxRoute = indicesNewRoutesToProcess
     curRouteOfInterest = ROUTES_OF_INTEREST{idxRoute};
+    
+    curUsrpStartTimeLog = fullfile( ...
+        ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
+        'rx-realm', 'power-delay-profiles', 'timestamp.log');
     curUsrpLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
         'rx-realm', 'power-delay-profiles', 'samples.log');
     
     curUsrpLogInfo = dir(curUsrpLog);
-    curUsrpLogSizeInByte = curUsrpLogInfo.bytes;
     
-    % Load the stamp for the start time of the USRP recording.
-    curUsrpStartTimeLog = fullfile( ...
-        ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
-        'rx-realm', 'power-delay-profiles', 'timestamp.log');
-    rxUsrpStartTimestamps{idxRoute} ...
-        = parseUsrpTimestampLog(curUsrpStartTimeLog);
-    
-    % In a GnuRadio .out file, we have:
-    %     Complex - 32 bit floating point for both I and Q readings (8
-    %     bytes in total per sample).
-    curNumOfSamps = floor(curUsrpLogSizeInByte/8);
-    
-    % Segment the coninuous recording to 1-s pieces.
-    numOfSigPs = floor(curNumOfSamps/Fs);
-    if numOfSigPs*Fs<curNumOfSamps
-        numOfSigPs = numOfSigPs+1;
-    end
-    
-    curSigPs = nan(numOfSigPs, 1);
-    for idxSigP = 1:numOfSigPs
-        % Avoid reading the whole log file to save RAM.
-        sigSeg = readComplexBinaryInRange(curUsrpLog, ...
-            [Fs*(idxSigP-1)+1, min(idxSigP*Fs, curNumOfSamps)]);
+    if length(curUsrpLogInfo)==1
+        % Load the stamp for the start time of the USRP recording.
+        rxUsrpStartTimestamps{idxRoute} ...
+            = parseUsrpTimestampLog(curUsrpStartTimeLog);
         
-        FlagCutHead = idxSigP==1;
-        curSigPs(idxSigP) = computeRxSigPower(sigSeg, rxGain, FlagCutHead);
+        rxSigPowers{idxRoute} = compRxSigPowersFromUsrpSamps( ...
+            curUsrpLogInfo, Fs, rxGain);
+    else
+        % For some routes we have multiple sample log files.
+        rxUsrpStartTimestamps{idxRoute} ...
+            = parseUsrpTimestampsLog(curUsrpStartTimeLog);
+        
+        numOfSampLogs = length(rxUsrpStartTimestamps{idxRoute});
+        curRxSigPowers = cell(numOfSampLogs, 1);
+        for idxLog = 1:numOfSampLogs
+            curUsrpLog = fullfile(ABS_PATH_TO_MEAS_DATA, curRouteOfInterest, ...
+                'rx-realm', 'power-delay-profiles', ...
+                ['samples_', num2str(idxLog), '.log']);
+            curUsrpLogInfo = dir(curUsrpLog);
+            curRxSigPowers{idxLog} = compRxSigPowersFromUsrpSamps( ...
+                curUsrpLogInfo, Fs, rxGain);
+        end
+        rxSigPowers{idxRoute} = curRxSigPowers;
     end
-    
-    rxSigPowers{idxRoute} = curSigPs;
 end
 
 disp('    Done!')
@@ -193,24 +199,49 @@ disp('    Done!')
 
 %% Match RX Power Results with GPS Records
 
-% We will find the nearest RX signal smaple for each GPS point.
-MAX_ALLOWED_TIME_DIFF_IN_S = 1;
-
 % Deduce timestamps for the RX signal power values.
 rxSigPowerDatetimes = cell(numOfRoutes, 1);
 % Save the matched RX power results.
 matchedGpsLatLonPowers = cell(numOfRoutes, 1);
 for idxRoute = 1:numOfRoutes
-    % Time stamps for the signal power results.
-    curUsrpStartDatetime = datetime(rxUsrpStartTimestamps{idxRoute});
-    curNumOfSigPowerVs = length(rxSigPowers{idxRoute});
-    
-    rxSigPowerDatetimes{idxRoute} ...
-        = repmat(curUsrpStartDatetime, curNumOfSigPowerVs, 1);
-    for idxSigPower = 1:curNumOfSigPowerVs
-        rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
-            = rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
-            + seconds(idxSigPower-0.5);
+    if ischar(rxUsrpStartTimestamps{idxRoute})
+        % Time stamps for the signal power results.
+        curUsrpStartDatetime = datetime(rxUsrpStartTimestamps{idxRoute});
+        curNumOfSigPowerVs = length(rxSigPowers{idxRoute});
+        
+        rxSigPowerDatetimes{idxRoute} ...
+            = repmat(curUsrpStartDatetime, curNumOfSigPowerVs, 1);
+        for idxSigPower = 1:curNumOfSigPowerVs
+            rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
+                = rxSigPowerDatetimes{idxRoute}(idxSigPower) ...
+                + seconds(idxSigPower-0.5);
+        end
+        
+        curRxSigPowerDatetimes = rxSigPowerDatetimes{idxRoute};
+        curRxSigPowers = rxSigPowers{idxRoute};
+    else
+        % Multiple sample logs.
+        curNumOfLogs = length(rxUsrpStartTimestamps{idxRoute});
+        curNumsOfSigPowerVs = cellfun(@(c) length(c), ...
+            rxSigPowers{idxRoute});
+        
+        curSigPowerVCnt = 0;
+        rxSigPowerDatetimes{idxRoute} = cell(curNumOfLogs,1);
+        for idxLog = 1:curNumOfLogs
+            curUsrpStartDatetime ...
+                = datetime(rxUsrpStartTimestamps{idxRoute}{idxLog});
+            rxSigPowerDatetimes{idxRoute}{idxLog} ...
+                = repmat(curUsrpStartDatetime, ...
+                curNumsOfSigPowerVs(idxLog), 1);
+            for idxSigPower = 1:curNumsOfSigPowerVs(idxLog)
+                rxSigPowerDatetimes{idxRoute}{idxLog}(idxSigPower) ...
+                    = rxSigPowerDatetimes{idxRoute}{idxLog}(idxSigPower) ...
+                    + seconds(idxSigPower-0.5);
+            end
+        end
+        
+        curRxSigPowerDatetimes = vertcat(rxSigPowerDatetimes{idxRoute}{:});
+        curRxSigPowers = vertcat(rxSigPowers{idxRoute}{:});
     end
     
     % Match the results with GPS points.
@@ -221,7 +252,8 @@ for idxRoute = 1:numOfRoutes
     curIndicesNearestSigPowers = nan(curNumOfGpsPts, 1);
     for idxGpsPt = 1:curNumOfGpsPts
         [minTimeDiff, idxNearestSigPower] = ...
-            min(abs(curGpsDatetimes(idxGpsPt) - rxSigPowerDatetimes{idxRoute}));
+            min(abs(curGpsDatetimes(idxGpsPt) ...
+            - curRxSigPowerDatetimes));
         if minTimeDiff<=seconds(MAX_ALLOWED_TIME_DIFF_IN_S)
             curIndicesNearestSigPowers(idxGpsPt) = idxNearestSigPower;
         end
@@ -230,8 +262,7 @@ for idxRoute = 1:numOfRoutes
     curBoolsMatchedGpsPts = ~isnan(curIndicesNearestSigPowers);
     matchedGpsLatLonPowers{idxRoute} ...
         = [curGpsLatLons(curBoolsMatchedGpsPts,:), ...
-        rxSigPowers{idxRoute}( ...
-        curIndicesNearestSigPowers(curBoolsMatchedGpsPts))];
+        curRxSigPowers(curIndicesNearestSigPowers(curBoolsMatchedGpsPts))];
 end
 
 %% Plot 2D Overview
